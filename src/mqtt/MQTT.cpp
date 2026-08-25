@@ -9,6 +9,7 @@
 #include "mesh/Router.h"
 #include "mesh/generated/meshtastic/mqtt.pb.h"
 #include "mesh/generated/meshtastic/telemetry.pb.h"
+#include "modules/NodeInfoModule.h"
 #include "modules/RoutingModule.h"
 #if defined(ARCH_ESP32)
 #include "../mesh/generated/meshtastic/paxcount.pb.h"
@@ -78,12 +79,14 @@ inline bool isMqttChatPartner(NodeNum n)
     return false;
 }
 
-inline void rememberMqttChatPartner(NodeNum n)
+// Returns true when the sender was not yet in the list
+inline bool rememberMqttChatPartner(NodeNum n)
 {
     if (isMqttChatPartner(n))
-        return;
+        return false;
     mqttChatPartners[nextMqttChatPartner] = n;
     nextMqttChatPartner = (nextMqttChatPartner + 1) % kMaxMqttChatPartners;
+    return true;
 }
 
 inline bool isAcceptableDownlinkPacket(const meshtastic_MeshPacket *p)
@@ -92,12 +95,24 @@ inline bool isAcceptableDownlinkPacket(const meshtastic_MeshPacket *p)
         return true;
     switch (p->decoded.portnum) {
     case meshtastic_PortNum_POSITION_APP:
+        // Allow positions from chat partners so a message author's location resolves; drop the rest
+        if (isMqttChatPartner(getFrom(p)) || nodeDB->getMeshNode(getFrom(p)) != NULL)
+            return true;
+        LOG_DEBUG("Ignore position packet via MQTT downlink from unknown node 0x%x", getFrom(p));
+        return false;
     case meshtastic_PortNum_TELEMETRY_APP:
-        LOG_DEBUG("Ignore position/telemetry packet via MQTT downlink");
+        LOG_DEBUG("Ignore telemetry packet via MQTT downlink");
         return false;
     case meshtastic_PortNum_TEXT_MESSAGE_APP:
     case meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP:
-        rememberMqttChatPartner(getFrom(p));
+        // First text from this author: solicit their NodeInfo right away (zero hop: uplinked
+        // to MQTT but not relayed over RF) so their name resolves without waiting for their
+        // next periodic broadcast. Skip authors whose user info we already have.
+        if (rememberMqttChatPartner(getFrom(p)) && (isBroadcast(p->to) || isToUs(p)) && nodeInfoModule) {
+            const meshtastic_NodeInfoLite *known = nodeDB->getMeshNode(getFrom(p));
+            if (!known || !known->has_user)
+                nodeInfoModule->sendOurNodeInfo(getFrom(p), true, p->channel, false, true);
+        }
         return true;
     case meshtastic_PortNum_NODEINFO_APP:
         if (!isMqttChatPartner(getFrom(p)) && nodeDB->getMeshNode(getFrom(p)) == NULL) {

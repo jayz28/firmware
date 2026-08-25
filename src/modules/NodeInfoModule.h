@@ -20,9 +20,11 @@ class NodeInfoModule : public ProtobufModule<meshtastic_User>, private concurren
 
     /**
      * Send our NodeInfo into the mesh
+     * zeroHop: send with hop_limit 0 so the packet is not relayed over RF (it is still
+     * uplinked to MQTT) — used to solicit NodeInfo from MQTT chat partners.
      */
     void sendOurNodeInfo(NodeNum dest = NODENUM_BROADCAST, bool wantReplies = false, uint8_t channel = 0,
-                         bool _shorterTimeout = false);
+                         bool _shorterTimeout = false, bool zeroHop = false);
 
     /**
      * Schedule an immediate NodeInfo periodic check.

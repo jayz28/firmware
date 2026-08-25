@@ -179,6 +179,25 @@ inline void onReceiveProto(char *topic, byte *payload, size_t length)
     if (strcmp(e.channel_id, "PKI") == 0 && !anyChannelHasDownlink) {
         return;
     }
+
+    // Two cheap rejects before any allocation, decrypt attempt or logging. On a busy public broker
+    // most of the stream is unusable to us, and processing it is what makes this node fall behind and
+    // get dropped by the broker as a slow consumer.
+
+    // Envelopes carrying no payload at all: only header metadata, nothing to decrypt or deliver.
+    // A handful of gateways publish hundreds of these per second to the public LongFast topic.
+    if (e.packet->which_payload_variant != meshtastic_MeshPacket_encrypted_tag &&
+        e.packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+        return;
+
+    // An encrypted packet on a channel topic must carry the hash of the local channel we matched by
+    // name, or we hold no key that can ever decrypt it (someone else's channel of the same name).
+    if (strcmp(e.channel_id, "PKI") != 0 && e.packet->which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
+        const int16_t localHash = channels.getHash(ch.index);
+        if (localHash < 0 || e.packet->channel != (uint32_t)localHash)
+            return;
+    }
+
     // Generate node ID from nodenum for comparison
     std::string nodeId = nodeDB->getNodeId();
     if (strcmp(e.gateway_id, nodeId.c_str()) == 0) {
@@ -621,14 +640,18 @@ void MQTT::sendSubscriptions()
             hasDownlink = true;
             std::string topic = cryptTopic + channels.getGlobalId(i) + "/+";
             LOG_INFO("Subscribe to %s", topic.c_str());
-            pubSub.subscribe(topic.c_str(), 1); // FIXME, is QOS 1 right?
+            // QoS 0: at QoS 1 the broker queues undelivered messages per client, and on a busy
+            // public channel this node cannot drain them fast enough — the queue overflows and the
+            // broker disconnects us every ~30s. Mesh traffic is already best-effort, so drop the
+            // delivery guarantee in exchange for a session that stays up.
+            pubSub.subscribe(topic.c_str(), 0);
         }
     }
 #if !MESHTASTIC_EXCLUDE_PKI
     if (hasDownlink) {
         std::string topic = cryptTopic + "PKI/+";
         LOG_INFO("Subscribe to %s", topic.c_str());
-        pubSub.subscribe(topic.c_str(), 1);
+        pubSub.subscribe(topic.c_str(), 0); // QoS 0, see above
     }
 #endif
 #endif

@@ -157,14 +157,12 @@ inline void onReceiveProto(char *topic, byte *payload, size_t length)
         return;
     }
 
-    // Cheap early reject before any allocation, decrypt attempt or logging: on a channel topic the
-    // packet's channel hash must match the local channel we matched by name. On a busy public broker
-    // the large majority of traffic is PKI DMs (hash 0) or packets keyed for someone else's channel of
-    // the same name, none of which we can ever decrypt. Discarding them here is what keeps the node
-    // from falling behind the stream and being dropped by the broker as a slow consumer.
+    // Two cheap rejects before any allocation, decrypt attempt or logging. On a busy public broker
+    // most of the stream is unusable to us, and processing it is what makes this node fall behind and
+    // get dropped by the broker as a slow consumer.
+
     // Envelopes carrying no payload at all: only header metadata, nothing to decrypt or deliver.
-    // A single gateway publishes hundreds of these per second to the public LongFast topic, and
-    // processing them is what starves this node of the real traffic.
+    // A handful of gateways publish hundreds of these per second to the public LongFast topic.
     if (e.packet->which_payload_variant != meshtastic_MeshPacket_encrypted_tag &&
         e.packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
         return;

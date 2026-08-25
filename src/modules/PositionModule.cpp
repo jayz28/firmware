@@ -107,7 +107,9 @@ bool PositionModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
         trySetRtc(p, isLocal, force);
     }
 
-    nodeDB->updatePosition(getFrom(&mp), p);
+    // Positions heard via MQTT never create a node DB entry
+    if (!mp.via_mqtt || nodeDB->getMeshNode(getFrom(&mp)) != NULL)
+        nodeDB->updatePosition(getFrom(&mp), p);
     precision = getPositionPrecisionForChannel(mp.channel);
 
     return false; // Let others look at this message also if they want

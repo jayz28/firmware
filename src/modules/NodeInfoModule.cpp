@@ -53,7 +53,11 @@ bool NodeInfoModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
     // Coerce user.id to be derived from the node number
     snprintf(p.id, sizeof(p.id), "!%08x", getFrom(&mp));
 
-    bool hasChanged = nodeDB->updateUser(getFrom(&mp), p, mp.channel);
+    // NodeInfo heard via MQTT may update a node we already track, but never creates a DB entry;
+    // the packet is still forwarded to the phone, which keeps its own node list.
+    bool hasChanged = false;
+    if (!mp.via_mqtt || nodeDB->getMeshNode(getFrom(&mp)) != NULL)
+        hasChanged = nodeDB->updateUser(getFrom(&mp), p, mp.channel);
 
     bool wasBroadcast = isBroadcast(mp.to);
 

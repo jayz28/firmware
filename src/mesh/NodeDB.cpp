@@ -1927,7 +1927,9 @@ void NodeDB::updateFrom(const meshtastic_MeshPacket &mp)
     if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag && mp.from) {
         LOG_DEBUG("Update DB node 0x%x, rx_time=%u", mp.from, mp.rx_time);
 
-        meshtastic_NodeInfoLite *info = getOrCreateMeshNode(getFrom(&mp));
+        // Packets heard via MQTT may update a node we deliberately track (e.g. an imported
+        // contact), but must never create a new node DB entry.
+        meshtastic_NodeInfoLite *info = mp.via_mqtt ? getMeshNode(getFrom(&mp)) : getOrCreateMeshNode(getFrom(&mp));
         if (!info) {
             return;
         }

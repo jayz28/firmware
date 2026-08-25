@@ -42,7 +42,17 @@ Join our community and help improve Meshtastic! 🚀
 
 ## About this fork
 
-Branched from upstream tag `v2.7.26.54e0d8d`. Everything above is upstream documentation and still applies: build and flash the same way, using the same environments. This section covers only the differences.
+Everything above is upstream documentation and still applies: build and flash the same way, using the same environments. This section covers only the differences.
+
+### Branches
+
+| Branch | Base | Use |
+| --- | --- | --- |
+| `mqtt-downlink-filter` | release tag `v2.7.26.54e0d8d` | Run this on hardware today. Tested on a Heltec V4. |
+| `mqtt-downlink-filter-develop` | upstream `develop` | The same changes ported forward, ready for the next release. Builds clean; not yet tested on hardware. |
+| `develop`, `master` | — | Left untouched so they stay clean for pulling from and proposing to upstream. |
+
+**This is the `develop`-based branch.** The two lines carry the same six changes; this one is adapted to API changes upstream has made since 2.7.26 (`nodeInfoLiteHasUser()` in place of `NodeInfoLite.has_user`, the `passesRoutingAuthGate()` decode gate, and the node-database admission throttle that upstream added to `NodeDB::updateFrom`).
 
 ### The problem it solves
 

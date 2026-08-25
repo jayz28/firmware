@@ -153,6 +153,27 @@ inline void onReceiveProto(char *topic, byte *payload, size_t length)
     if (strcmp(e.channel_id, "PKI") == 0 && !anyChannelHasDownlink) {
         return;
     }
+
+    // Cheap early reject before any allocation, decrypt attempt or logging: on a channel topic the
+    // packet's channel hash must match the local channel we matched by name. On a busy public broker
+    // the large majority of traffic is PKI DMs (hash 0) or packets keyed for someone else's channel of
+    // the same name, none of which we can ever decrypt. Discarding them here is what keeps the node
+    // from falling behind the stream and being dropped by the broker as a slow consumer.
+    // Envelopes carrying no payload at all: only header metadata, nothing to decrypt or deliver.
+    // A single gateway publishes hundreds of these per second to the public LongFast topic, and
+    // processing them is what starves this node of the real traffic.
+    if (e.packet->which_payload_variant != meshtastic_MeshPacket_encrypted_tag &&
+        e.packet->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+        return;
+
+    // An encrypted packet on a channel topic must carry the hash of the local channel we matched by
+    // name, or we hold no key that can ever decrypt it (someone else's channel of the same name).
+    if (strcmp(e.channel_id, "PKI") != 0 && e.packet->which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
+        const int16_t localHash = channels.getHash(ch.index);
+        if (localHash < 0 || e.packet->channel != (uint32_t)localHash)
+            return;
+    }
+
     // Generate node ID from nodenum for comparison
     std::string nodeId = nodeDB->getNodeId();
     if (strcmp(e.gateway_id, nodeId.c_str()) == 0) {
@@ -657,13 +678,17 @@ void MQTT::sendSubscriptions()
             hasDownlink = true;
             std::string topic = cryptTopic + channels.getGlobalId(i) + "/+";
             LOG_INFO("Subscribe to %s", topic.c_str());
-            pubSub.subscribe(topic.c_str(), 1); // FIXME, is QOS 1 right?
+            // QoS 0: at QoS 1 the broker queues undelivered messages per client, and on a busy
+            // public channel this node cannot drain them fast enough — the queue overflows and the
+            // broker disconnects us every ~30s. Mesh traffic is already best-effort, so drop the
+            // delivery guarantee in exchange for a session that stays up.
+            pubSub.subscribe(topic.c_str(), 0);
 #if !defined(ARCH_NRF52) ||                                                                                                      \
     defined(NRF52_USE_JSON) // JSON is not supported on nRF52, see issue #2804 ### Fixed by using ArduinoJSON ###
             if (moduleConfig.mqtt.json_enabled == true) {
                 std::string topicDecoded = jsonTopic + channels.getGlobalId(i) + "/+";
                 LOG_INFO("Subscribe to %s", topicDecoded.c_str());
-                pubSub.subscribe(topicDecoded.c_str(), 1); // FIXME, is QOS 1 right?
+                pubSub.subscribe(topicDecoded.c_str(), 0); // QoS 0, see above
             }
 #endif // ARCH_NRF52 NRF52_USE_JSON
         }
@@ -672,7 +697,7 @@ void MQTT::sendSubscriptions()
     if (hasDownlink) {
         std::string topic = cryptTopic + "PKI/+";
         LOG_INFO("Subscribe to %s", topic.c_str());
-        pubSub.subscribe(topic.c_str(), 1);
+        pubSub.subscribe(topic.c_str(), 0); // QoS 0, see above
     }
 #endif
 #endif

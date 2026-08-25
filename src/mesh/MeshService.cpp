@@ -98,7 +98,7 @@ int MeshService::handleFromRadio(const meshtastic_MeshPacket *mp)
         mp->decoded.portnum == meshtastic_PortNum_TELEMETRY_APP && mp->decoded.request_id > 0) {
         LOG_DEBUG("Got telemetry response. Skip our NodeInfo");
         //  ignore our request for its NodeInfo
-    } else if (mp->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+    } else if (mp->which_payload_variant == meshtastic_MeshPacket_decoded_tag && !mp->via_mqtt &&
                !nodeInfoLiteHasUser(nodeDB->getMeshNode(mp->from)) && nodeInfoModule && !isPreferredRebroadcaster &&
                !nodeDB->isFull()) {
         if (airTime->isTxAllowedChannelUtil(true)) {

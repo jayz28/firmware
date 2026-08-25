@@ -62,7 +62,11 @@ bool NodeInfoModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 
     // updateUser() refuses the identity write for a known signer sending unsigned (all unicast
     // NodeInfo), so the exchange above still proceeds but cannot spoof the stored name.
-    bool hasChanged = nodeDB->updateUser(getFrom(&mp), p, mp.channel, mp.xeddsa_signed);
+    // NodeInfo heard via MQTT may update a node we already track, but never creates a DB entry;
+    // the packet is still forwarded to the phone, which keeps its own node list.
+    bool hasChanged = false;
+    if (!mp.via_mqtt || nodeDB->getMeshNode(getFrom(&mp)) != NULL)
+        hasChanged = nodeDB->updateUser(getFrom(&mp), p, mp.channel, mp.xeddsa_signed);
 
     bool wasBroadcast = isBroadcast(mp.to);
 

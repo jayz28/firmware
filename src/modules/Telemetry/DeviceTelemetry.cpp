@@ -57,7 +57,9 @@ bool DeviceTelemetryModule::handleReceivedProtobuf(const meshtastic_MeshPacket &
                  t->variant.device_metrics.air_util_tx, t->variant.device_metrics.channel_utilization,
                  t->variant.device_metrics.battery_level, t->variant.device_metrics.voltage);
 #endif
-        nodeDB->updateTelemetry(getFrom(&mp), *t, RX_SRC_RADIO);
+        // Telemetry heard via MQTT never creates a node DB entry
+        if (!mp.via_mqtt || nodeDB->getMeshNode(getFrom(&mp)) != NULL)
+            nodeDB->updateTelemetry(getFrom(&mp), *t, RX_SRC_RADIO);
     }
     return false; // Let others look at this message also if they want
 }

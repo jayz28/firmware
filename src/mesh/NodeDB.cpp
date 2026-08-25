@@ -3728,6 +3728,10 @@ void NodeDB::updateFrom(const meshtastic_MeshPacket &mp)
         // invented node numbers churn it at packet rate and push real neighbours out.
         meshtastic_NodeInfoLite *info = getMeshNode(getFrom(&mp));
         if (!info) {
+            // Packets heard via MQTT may update a node we deliberately track (e.g. an imported
+            // contact), but must never create a new node DB entry.
+            if (mp.via_mqtt)
+                return;
             if (isFull()) {
                 if (Throttle::isWithinTimespanMs(lastFullEvictionMs, NODEDB_FULL_EVICTION_INTERVAL_MS)) {
                     LOG_DEBUG("Node database full, defer admitting 0x%08x", mp.from);

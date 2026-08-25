@@ -85,6 +85,57 @@ inline bool shouldDropMqttDownlink(const meshtastic_MeshPacket &packet)
     return false;
 }
 
+// On a busy public broker, downlink traffic is dominated by NodeInfo/Position/Telemetry
+// broadcasts from nodes we will never interact with, which flood the node DB and the phone.
+// Drop Position and Telemetry outright, and accept NodeInfo only from senders we have heard
+// a text message from (tracked here in RAM, never persisted to the node DB) or that were
+// deliberately added to the node DB (e.g. imported contacts), so display names still resolve
+// on the phone for nodes we actually chat with.
+constexpr size_t kMaxMqttChatPartners = 32;
+static NodeNum mqttChatPartners[kMaxMqttChatPartners] = {0};
+static size_t nextMqttChatPartner = 0;
+
+inline bool isMqttChatPartner(NodeNum n)
+{
+    for (size_t i = 0; i < kMaxMqttChatPartners; ++i) {
+        if (mqttChatPartners[i] == n)
+            return true;
+    }
+    return false;
+}
+
+inline void rememberMqttChatPartner(NodeNum n)
+{
+    if (isMqttChatPartner(n))
+        return;
+    mqttChatPartners[nextMqttChatPartner] = n;
+    nextMqttChatPartner = (nextMqttChatPartner + 1) % kMaxMqttChatPartners;
+}
+
+inline bool isAcceptableDownlinkPacket(const meshtastic_MeshPacket *p)
+{
+    if (p->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+        return true;
+    switch (p->decoded.portnum) {
+    case meshtastic_PortNum_POSITION_APP:
+    case meshtastic_PortNum_TELEMETRY_APP:
+        LOG_DEBUG("Ignore position/telemetry packet via MQTT downlink");
+        return false;
+    case meshtastic_PortNum_TEXT_MESSAGE_APP:
+    case meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP:
+        rememberMqttChatPartner(getFrom(p));
+        return true;
+    case meshtastic_PortNum_NODEINFO_APP:
+        if (!isMqttChatPartner(getFrom(p)) && nodeDB->getMeshNode(getFrom(p)) == NULL) {
+            LOG_DEBUG("Ignore NodeInfo via MQTT downlink from unknown node 0x%x", getFrom(p));
+            return false;
+        }
+        return true;
+    default:
+        return true;
+    }
+}
+
 inline void onReceiveProto(char *topic, byte *payload, size_t length)
 {
     const DecodedServiceEnvelope e(payload, length);
@@ -149,7 +200,9 @@ inline void onReceiveProto(char *topic, byte *payload, size_t length)
     p->to = e.packet->to;
     p->id = e.packet->id;
     p->channel = e.packet->channel;
-    p->hop_limit = e.packet->hop_limit;
+    // Force hop_limit to 0 so MQTT-sourced packets are never rebroadcast over the air,
+    // regardless of the hop count the broker delivered them with.
+    p->hop_limit = 0;
     p->hop_start = e.packet->hop_start;
     p->want_ack = e.packet->want_ack;
     p->via_mqtt = true;       // Mark that the packet was received via MQTT
@@ -193,8 +246,10 @@ inline void onReceiveProto(char *topic, byte *payload, size_t length)
         // likely they discovered each other via a channel we have downlink enabled for
         if (isToUs(p.get()) || (nodeInfoLiteHasUser(tx) && nodeInfoLiteHasUser(rx)))
             router->enqueueReceivedMessage(p.release());
-    } else if (router && passesRoutingAuthGate(p.get()) == RoutingAuthVerdict::ACCEPT)
-        router->enqueueReceivedMessage(p.release());
+    } else if (router && passesRoutingAuthGate(p.get()) == RoutingAuthVerdict::ACCEPT) {
+        if (isAcceptableDownlinkPacket(p.get()))
+            router->enqueueReceivedMessage(p.release());
+    }
 }
 
 /// Determines if the given IPAddress is a private IPv4 address, i.e. not routable on the public internet.

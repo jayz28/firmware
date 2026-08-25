@@ -136,7 +136,7 @@ inline bool isAcceptableDownlinkPacket(const meshtastic_MeshPacket *p)
         // next periodic broadcast. Skip authors whose user info we already have.
         if (rememberMqttChatPartner(getFrom(p)) && (isBroadcast(p->to) || isToUs(p)) && nodeInfoModule) {
             const meshtastic_NodeInfoLite *known = nodeDB->getMeshNode(getFrom(p));
-            if (!known || !known->has_user)
+            if (!nodeInfoLiteHasUser(known))
                 // shorterTimeout: treat this like the interactive request it is, so allocReply()
                 // applies its 60s throttle rather than the 10 minute periodic-broadcast one that
                 // would otherwise discard the solicitation.

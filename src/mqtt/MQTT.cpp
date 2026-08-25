@@ -137,7 +137,10 @@ inline bool isAcceptableDownlinkPacket(const meshtastic_MeshPacket *p)
         if (rememberMqttChatPartner(getFrom(p)) && (isBroadcast(p->to) || isToUs(p)) && nodeInfoModule) {
             const meshtastic_NodeInfoLite *known = nodeDB->getMeshNode(getFrom(p));
             if (!known || !known->has_user)
-                nodeInfoModule->sendOurNodeInfo(getFrom(p), true, p->channel, false, true);
+                // shorterTimeout: treat this like the interactive request it is, so allocReply()
+                // applies its 60s throttle rather than the 10 minute periodic-broadcast one that
+                // would otherwise discard the solicitation.
+                nodeInfoModule->sendOurNodeInfo(getFrom(p), true, p->channel, true, true);
         }
         return true;
     case meshtastic_PortNum_NODEINFO_APP:

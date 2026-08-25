@@ -42,7 +42,17 @@ Join our community and help improve Meshtastic! 🚀
 
 ## About this fork
 
-Branched from upstream tag `v2.7.26.54e0d8d`. Everything above is upstream documentation and still applies: build and flash the same way, using the same environments. This section covers only the differences.
+Everything above is upstream documentation and still applies: build and flash the same way, using the same environments. This section covers only the differences.
+
+### Branches
+
+| Branch | Base | Use |
+| --- | --- | --- |
+| `mqtt-downlink-filter` | release tag `v2.7.26.54e0d8d` | Run this on hardware today. Tested on a Heltec V4. |
+| `mqtt-downlink-filter-develop` | upstream `develop` | The same changes ported forward, ready for the next release. Builds clean; not yet tested on hardware. |
+| `develop`, `master` | — | Left untouched so they stay clean for pulling from and proposing to upstream. |
+
+**This is the release-tag branch**, the one to flash for day-to-day use.
 
 ### The problem it solves
 

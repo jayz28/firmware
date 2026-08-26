@@ -150,6 +150,9 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      */
     void handleReceived(meshtastic_MeshPacket *p, RxSource src = RX_SRC_RADIO);
 
+    /** Dump the ciphertext of a packet we hold no key for, for host-side key testing */
+    void logUndecryptable(const meshtastic_MeshPacket *p);
+
     /** Frees the provided packet, and generates a NAK indicating the specifed error while sending */
     void abortSendAndNak(meshtastic_Routing_Error err, meshtastic_MeshPacket *p);
 };

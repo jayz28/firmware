@@ -719,6 +719,30 @@ NodeNum Router::getNodeNum()
     return nodeDB->getNodeNum();
 }
 
+#ifndef LOG_UNDECRYPTABLE_CIPHERTEXT
+#define LOG_UNDECRYPTABLE_CIPHERTEXT 1
+#endif
+
+/**
+ * Log the ciphertext of a packet we could not decrypt, so a host-side tool reading this
+ * console can try channel keys this node does not hold (for example to spot neighbours
+ * still using the default key). Only failed decrypts are dumped, so the volume is a few
+ * lines a minute, and the console is the only consumer: the client API is unaffected.
+ */
+void Router::logUndecryptable(const meshtastic_MeshPacket *p)
+{
+#if LOG_UNDECRYPTABLE_CIPHERTEXT
+    if (p->which_payload_variant != meshtastic_MeshPacket_encrypted_tag || !p->encrypted.size ||
+        p->encrypted.size > meshtastic_Constants_DATA_PAYLOAD_LEN)
+        return;
+    char hex[2 * meshtastic_Constants_DATA_PAYLOAD_LEN + 1];
+    for (size_t i = 0; i < p->encrypted.size; i++)
+        snprintf(hex + i * 2, 3, "%02x", p->encrypted.bytes[i]);
+    LOG_DEBUG("Undecryptable id=0x%08x fr=0x%08x ch=0x%x len=%u data=%s", p->id, getFrom(p), p->channel,
+              (unsigned)p->encrypted.size, hex);
+#endif
+}
+
 /**
  * Handle any packet that is received by an interface on this node.
  * Note: some packets may merely being passed through this node and will be forwarded elsewhere.
@@ -781,6 +805,7 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
         }
     } else {
         printPacket("packet decoding failed or skipped (no PSK?)", p);
+        logUndecryptable(p);
     }
 
     // call modules here

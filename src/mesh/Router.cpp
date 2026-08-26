@@ -735,11 +735,19 @@ void Router::logUndecryptable(const meshtastic_MeshPacket *p)
     if (p->which_payload_variant != meshtastic_MeshPacket_encrypted_tag || !p->encrypted.size ||
         p->encrypted.size > meshtastic_Constants_DATA_PAYLOAD_LEN)
         return;
-    char hex[2 * meshtastic_Constants_DATA_PAYLOAD_LEN + 1];
-    for (size_t i = 0; i < p->encrypted.size; i++)
-        snprintf(hex + i * 2, 3, "%02x", p->encrypted.bytes[i]);
-    LOG_DEBUG("Undecryptable id=0x%08x fr=0x%08x ch=0x%x len=%u data=%s", p->id, getFrom(p), p->channel,
-              (unsigned)p->encrypted.size, hex);
+    // The log buffer is 512 bytes, so a full payload's hex does not fit on one line and a
+    // truncated hex string can never be decrypted. Emit it in numbered chunks instead and let
+    // the reader reassemble; 96 bytes of payload is 192 hex characters, well inside the buffer.
+    const size_t chunkBytes = 96;
+    char hex[2 * chunkBytes + 1];
+    for (size_t offset = 0, part = 0; offset < p->encrypted.size; offset += chunkBytes, part++) {
+        const size_t take = min(chunkBytes, (size_t)p->encrypted.size - offset);
+        for (size_t i = 0; i < take; i++)
+            snprintf(hex + i * 2, 3, "%02x", p->encrypted.bytes[offset + i]);
+        hex[take * 2] = 0;
+        LOG_DEBUG("Undecryptable id=0x%08x fr=0x%08x ch=0x%x len=%u part=%u data=%s", p->id, getFrom(p),
+                  p->channel, (unsigned)p->encrypted.size, (unsigned)part, hex);
+    }
 #endif
 }
 

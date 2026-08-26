@@ -77,9 +77,12 @@ All changes are in the MQTT receive path (`src/mqtt/MQTT.cpp`) plus guards where
 | Never create nodes from MQTT | `via_mqtt` packets may refresh a node that already exists but never create one, in `NodeDB::updateFrom` and in the NodeInfo, Position and Telemetry handlers. The phone keeps its own node list, so names still display there. |
 | Never rebroadcast MQTT over RF | `hop_limit` is forced to 0 at ingress, so broker traffic cannot be re-aired regardless of the hop count it arrived with, or of broker policy. |
 | Solicit NodeInfo from new chat authors | The first text from an unknown author triggers a NodeInfo exchange so their name resolves in seconds instead of waiting for their next periodic broadcast. Sent at hop limit 0, and marked interactive so `allocReply()` applies its 60s throttle rather than the 10 minute periodic one. |
+| Log undecryptable ciphertext | Packets the node holds no key for are dumped to the console as `Undecryptable id=… fr=… ch=… len=… data=<hex>`, so a host-side tool can try keys this node does not have (for example to find neighbours still on the stock `AQ==` key). Only failed decrypts are logged, a few lines a minute in a typical area. Set `LOG_UNDECRYPTABLE_CIPHERTEXT` to 0 to compile it out. |
 | Subscribe at QoS 0 | Upstream subscribes at QoS 1, which makes the broker queue undelivered messages per client. A node that cannot drain a busy topic overflows that queue and gets dropped as a slow consumer. Mesh traffic is best-effort anyway. |
 
 Chat partners are tracked in a small fixed-size list in RAM (32 entries, cleared on reboot). It is never persisted, so no MQTT-sourced node reaches flash.
+
+Why the console rather than the client API: the API already forwards undecryptable packets with their payload, but every connected client draws from one shared queue, so a phone consumes packets a monitor never sees. The console has no such contention, and the phone keeps working normally.
 
 ### Recommended configuration
 

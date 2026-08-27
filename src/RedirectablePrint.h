@@ -51,6 +51,9 @@ class RedirectablePrint : public Print
   protected:
     /// Subclasses can override if they need to change how we format over the serial port
     virtual void log_to_serial(const char *logLevel, const char *format, va_list arg);
+
+    /// Send the complete log line to a host over UDP, for off-device monitoring
+    virtual void log_to_udp(const char *logLevel, const char *format, va_list arg);
     meshtastic_LogRecord_Level getLogLevel(const char *logLevel);
 
   private:

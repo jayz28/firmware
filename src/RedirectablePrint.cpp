@@ -7,6 +7,7 @@
 #include "memGet.h"
 #include "mesh/generated/meshtastic/mesh.pb.h"
 #include <assert.h>
+#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -19,6 +20,30 @@
 
 #if HAS_NETWORKING
 extern meshtastic::Syslog syslog;
+
+// Full log lines over UDP, for a monitoring host that cannot use serial or the TCP API.
+//
+// The TCP client API allows only one connection at a time and a second connection force-closes
+// the first, so a network monitor there would fight a WiFi-attached phone app. Datagrams touch
+// neither that slot nor the packet queue, so the phone is unaffected. The stock syslog sink
+// cannot be used for this: its library formats into an 81 byte buffer, which truncates every
+// line mid-field. Unicast by default rather than multicast, so a chatty debug log stays off
+// every other port on the network.
+#ifndef LOG_UDP_FULL_LINES
+#define LOG_UDP_FULL_LINES 1
+#endif
+#ifndef LOG_UDP_MAX_LINE
+#define LOG_UDP_MAX_LINE 512
+#endif
+#ifndef LOG_UDP_DEFAULT_PORT
+#define LOG_UDP_DEFAULT_PORT 5514
+#endif
+
+#if LOG_UDP_FULL_LINES && HAS_WIFI && !defined(ARCH_PORTDUINO)
+#include <WiFi.h>
+#include <WiFiUdp.h>
+static WiFiUDP logUdp;
+#endif
 #endif
 void RedirectablePrint::rpInit()
 {
@@ -181,8 +206,62 @@ void RedirectablePrint::log_to_serial(const char *logLevel, const char *format, 
     r += vprintf(logLevel, format, arg);
 }
 
+void RedirectablePrint::log_to_udp(const char *logLevel, const char *format, va_list arg)
+{
+#if LOG_UDP_FULL_LINES && HAS_WIFI && !defined(ARCH_PORTDUINO)
+    // Sending a datagram runs network code that logs; without this a single line recurses.
+    static bool sending = false;
+    if (sending || !config.network.rsyslog_server[0] || !WiFi.isConnected())
+        return;
+
+    // Resolve the destination once per config value. Only literal addresses: name lookup does
+    // not belong on the logging path.
+    static char cachedDest[sizeof(config.network.rsyslog_server)] = {0};
+    static IPAddress destAddr;
+    static uint16_t destPort = 0;
+    if (strcmp(cachedDest, config.network.rsyslog_server) != 0) {
+        strncpy(cachedDest, config.network.rsyslog_server, sizeof(cachedDest) - 1);
+        String spec(cachedDest);
+        const int delim = spec.indexOf(':');
+        const String host = delim > 0 ? spec.substring(0, delim) : spec;
+        destPort = delim > 0 ? (uint16_t)spec.substring(delim + 1).toInt() : LOG_UDP_DEFAULT_PORT;
+        if (!destAddr.fromString(host.c_str()))
+            destPort = 0;
+    }
+    if (!destPort)
+        return;
+
+    sending = true;
+    // Reproduce the console prefix ("LEVEL | HH:MM:SS uptime [Thread] ") so a reader parses
+    // datagrams and the serial console with the same rules.
+    char line[LOG_UDP_MAX_LINE];
+    int used = 0;
+    const uint32_t rtc_sec = getValidTime(RTCQuality::RTCQualityDevice, true);
+    const long hms = ((long)(rtc_sec % SEC_PER_DAY) + SEC_PER_DAY) % SEC_PER_DAY;
+    auto thread = concurrency::OSThread::currentThread;
+    used = snprintf(line, sizeof(line), "%s | %02d:%02d:%02d %u [%s] ", logLevel,
+                    (int)(hms / SEC_PER_HOUR), (int)((hms % SEC_PER_HOUR) / SEC_PER_MIN),
+                    (int)(hms % SEC_PER_MIN), (unsigned)(millis() / 1000),
+                    thread ? thread->ThreadName.c_str() : "");
+    if (used > 0 && used < (int)sizeof(line)) {
+        const int wrote = vsnprintf(line + used, sizeof(line) - used, format, arg);
+        if (wrote > 0)
+            used = std::min(used + wrote, (int)sizeof(line) - 1);
+        logUdp.beginPacket(destAddr, destPort);
+        logUdp.write((const uint8_t *)line, used);
+        logUdp.endPacket();
+    }
+    sending = false;
+#endif
+}
+
 void RedirectablePrint::log_to_syslog(const char *logLevel, const char *format, va_list arg)
 {
+#if LOG_UDP_FULL_LINES
+    // Our UDP sink uses the same destination and sends untruncated lines; running both would
+    // duplicate every line, one of them mangled at 80 characters.
+    return;
+#endif
 #if HAS_NETWORKING && !defined(ARCH_PORTDUINO)
     // if syslog is in use, collect the log messages and send them to syslog
     if (syslog.isEnabled()) {
@@ -330,6 +409,10 @@ void RedirectablePrint::log(const char *logLevel, const char *format, ...)
 
         va_copy(arg_copy, arg);
         log_to_syslog(logLevel, newFormat.get(), arg_copy);
+        va_end(arg_copy);
+
+        va_copy(arg_copy, arg);
+        log_to_udp(logLevel, newFormat.get(), arg_copy);
         va_end(arg_copy);
 
         log_to_ble(logLevel, newFormat.get(), arg);

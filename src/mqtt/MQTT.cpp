@@ -217,6 +217,10 @@ inline void onReceiveProto(char *topic, byte *payload, size_t length)
     memcpy(&p->decoded, &e.packet->decoded, std::max(sizeof(p->decoded), sizeof(p->encrypted)));
 
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+        // This packet was published in the clear, so it needed no decrypt and nothing has
+        // reported it yet. Log it before deciding its fate: the rejections below would
+        // otherwise be the only trace, naming neither the packet nor what it was.
+        printPacket("MQTT decoded message", p.get());
         if (moduleConfig.mqtt.encryption_enabled) {
             LOG_INFO("Ignore decoded message on MQTT, encryption is enabled");
             return;
